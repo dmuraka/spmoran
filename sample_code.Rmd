@@ -1,0 +1,577 @@
+---
+title: 'Spatial regression using the spmoran package: Boston housing price data examples'
+author: "Daisuke Murakami"
+date: "2020/5/27"
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+  html_document:
+    number_sections: yes
+    toc: yes
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Prerequisites, include=FALSE}
+# Loading (installing if nessesary) required packages
+
+ipkgs <- rownames(installed.packages())
+if (!("spdep" %in% ipkgs)) install.packages("spdep")
+if (!("rgdal" %in% ipkgs)) install.packages("rgdal")
+if (!("rgeos" %in% ipkgs)) install.packages("rgeos")
+if (!("dplyr" %in% ipkgs)) install.packages("dplyr")
+if (!("plm" %in% ipkgs))   install.packages("plm")
+if (!("spData" %in% ipkgs))install.packages("spData")
+```
+
+# Introduction
+
+This package provides functions estimating Moran eigenvector-based spatial regression models. In concrete, this package implements standard spatial regression models and extensions, including spatially and non-spatially varying coefficient model, models with group effects, spatial unconditional quantile regression model, and low rank spatial econometric models. All these models are estimated computationally efficiently. 
+
+These models are are extensions of the random effects eigenvector spatial filtering (RE-ESF) approach that efficiently eliminates residual spatial dependence using a spatial process that is interpretable in terms of the Moran coefficient (MC; Moran's I statistic). Below, I demonstrate spmoran using the baoston housin dataset. For further detail with another example, see <https://arxiv.org/abs/1703.04467>.
+
+```{r warning=F, message=F}
+library(spmoran)
+```
+
+# Moran eigenvector-based spatial regression models
+## Spatial regression models
+This section considers the following model:
+$$y_i=\sum^K_{k=1}x_{i,k}\beta_k+f_{MC}(s_i)+\epsilon_i, \hspace{0.5cm}
+\epsilon_i \sim N(0, \sigma^2),$$
+which decomposes the explained variable $y_i$ observed at i-th sample site into trend $\sum^K_{k=1}x_{i,k}\beta_{i,k}$, spatial process $f_{MC}(s_i)$ depending on location $s_i$, and noise $\epsilon_i$. The spatial proess is required to eliminate residual spatial dependence, and estimate/infer regression coefficients $\beta_k$ appropreately. ESF and RE-ESF define $f_{MC}(s_i)$ using MC-based spatial process to eliminate residual spatial dependence efficiently. These processes are constructed using the Moran eigenvectors (MEs), which are orthogonal spatial basis (see Griffith, 2003).
+
+### Eigenvector spatial filtering (ESF)
+ESF specifies $f_{MC}(s_i)$ using a MC-based deterministic spatial process (see Griffith, 2003). Below is a code estimating the linear ESF model. In the code, the meigen function extracts the MEs, and the esf function estimates the model. 
+```{r warning=F, message=F}
+require(spdep)
+data(boston)
+y	    <- boston.c[, "CMEDV" ]
+x	    <- boston.c[,c("CRIM","ZN","INDUS", "CHAS", "NOX","RM", "AGE")]
+coords<- boston.c[,c("LON","LAT")]
+
+#########Distance-based ESF
+meig 	<- meigen(coords=coords)
+res	  <- esf(y=y,x=x,meig=meig, vif=10)
+res
+```
+
+While the meigen function is slow for large samples, it can be substituted with the meigen_f function performing a fast eigen-approximation. Here is a fast ESF code for large samples: 
+```{r warning=F, message=F}
+meig_f<- meigen_f(coords)
+res   <- esf(y=y, x=x, meig=meig_f,vif=10, fn="all")
+```
+
+### Random effects ESF (RE-ESF)
+RE-ESF specifies $f_{MC}(s_i)$ using a MC-based spatial random process, again to eliminate residual spatial dependence (see Murakami and Griffith, 2015). Here is a sample example:
+```{r warning=F, message=F}
+res	  <- resf(y = y, x = x, meig = meig)
+res
+```
+
+For large data, meigen_f function is available again:
+```{r warning=F, message=F}
+meig_f<- meigen_f(coords)
+res	  <- resf(y = y, x = x, meig = meig_f)
+```
+
+The meigen_f function is available for all the regression models explained below.
+
+## Spatially and non-spatially varying coefficient models
+### Varying coefficient modeling
+Influence from covariates can vary depending on covariate value. For example, distance to railway station might have strong impact on housing price if the distance is small while it might be weak if the distance is large. To capture such effect, the resf function estimates coefficients varying with respect to covariate value. I call such coefficients as non-spatially varying coefficients (NVCs). If nvc=TRUE, the resf function estimates the following model considering NSVs and residual spatial dependence:
+$$y_i=\sum^K_{k=1}x_{i,k}\beta_{i,k}+f_{MC}(s_i)+\epsilon_i, \hspace{0.5cm}
+\beta_{i,k}=b_k + f(x_{i,k}), \hspace{0.5cm} \epsilon_i \sim N(0, \sigma^2),$$
+where $f(x_{i,k})$ is a smooth function of $x_{i,k}$ capturing the non-spatial influence. 
+
+Here is a code estimating a spatial NVC model (with selection of constant or NVC):
+```{r warning=F, message=F}
+res	  <- resf(y = y, x = x, meig = meig, nvc=TRUE)
+res
+```
+
+By default, this fucntion selects constant or NVC through BIC minimization."Non-spatially varying coefficients" in the "Variance parameter" section summarizes the estimated standard errors of the NVCs. Based on the result, coefficients on {NOX, RM} are NVCs, and coefficients on the others are constants. The NVC on RM, which is the 6-th covariates, is plotted as below. The solid line in the panel denotes the estimated NVC and the grey area denotes the 95 percent confidence interval. This plot shows that RM is positively statistically significant only if RM is large.
+```{r warning=F, message=F, fig.width = 4, fig.height= 4}
+plot_n(res,6)
+```
+
+The estimated spatial process $f_{MC}(s_i)$ can be plotted as
+```{r warning=F, message=F, fig.height = 4}
+plot_s(res)
+```
+
+Sometime, user might want to assume NVCs only on the first 3 covariates and constant coefficients on the others. The following code estimates such model:
+```{r warning=F, message=F}
+res	  <- resf(y = y, x = x, meig = meig, nvc=TRUE, nvc_sel=1:3)
+res
+```
+
+
+### Spatially varying coefficient modeling
+
+This package implements a ME-based spatially varying coefficient (M-SVC) model (Murakami et al., 2017), which is formulated as
+$$y_i=\sum^K_{k=1}x_{i,k}\beta_{i,k}+f_{MC}(s_i)+\epsilon_i, \hspace{0.5cm}
+\beta_{i,k}=b_k + f_{MC,k}(s_i), \hspace{0.5cm} \epsilon_i \sim N(0, \sigma^2),$$
+This model defines the k-th coefficient at site i by $\beta_{i,k}$= [constant mean $b_k$] + [spatially varying component $f_{MC,k}(s_i)$]. Geographically weighted regression (GWR) is known as another SVC estimation approach. Major advantages of the M-SVC modeling approach over GWR is as follows:
+
+- The M-SVC model estimates spatial scale (or the MC value) of each SVC whereas the classical GWR assumes a common scale across SVCs
+- The M-SVC model can assume SVCs on some covariates and constant coefficients on the others. It is acheived by simply assuming $\beta_{i,k}=b_k$
+- This model is faster and available for very large samples. In addition, the model is free from memory limitation if the besf_vc function is used (see Section 4).
+- Model selection (i.e., consant coefficient or SVC) is implemented without losing its computational efficiency
+
+Here is a sample code estimating a SVC model without coefficients type selection. In the code, x specifies covariates assumming SVCs while xconst specifies covariates assuming constant coefficients. If x_sel = FALSE, types of coefficients on x are fixed.
+```{r warning=F, message=F}
+y	      <- boston.c[, "CMEDV"]
+x       <- boston.c[,c("CRIM", "AGE")]
+xconst  <- boston.c[,c("ZN","DIS","RAD","NOX",  "TAX","RM", "PTRATIO", "B")]
+coords  <- boston.c[,c("LON","LAT")]
+meig 	  <- meigen(coords=coords)
+res	    <- resf_vc(y=y,x=x,xconst=xconst,meig=meig, x_sel = FALSE )
+res
+```
+
+Estimated SVCs can be plotted as
+```{r warning=F, message=F, fig.height = 4}
+plot_s(res,0) # Spatially varying intercept
+plot_s(res,1) # 1st SVC
+plot_s(res,2) # 2nd SVC
+```
+
+On the other hand, by default, the resf_vc function selects constant or SVCs through a BIC minimization (i.e., x_sel=TRUE by default). Here is a code:
+```{r warning=F, message=F}
+res	    <- resf_vc(y=y,x=x,xconst=xconst,meig=meig )
+res
+```
+
+### Spatially and non-spatially varying coefficient modeling
+The spatially and non-spatially varying coefficient (SNVC) model is defined as
+$$y_i=\sum^K_{k=1}x_{i,k}\beta_{i,k}+f_{MC}(s_i)+\epsilon_i, \hspace{0.5cm}
+\beta_{i,k}=b_k + f_{MC,k}(s_i)+f(x_{i,k}), \hspace{0.5cm} \epsilon_i \sim N(0, \sigma^2),$$
+This model defines the k-th coefficient as $\beta_{i,k}$= [constant mean $b_k$] + [spatially varying component $f_{MC,k}(s_i)$] + [non-spatially varying component $f(x_{i,k})$]. Murakami and Griffith (2020) showed that, unlike SVC models that tend to be unstable due to spurious correlation among SVCs (see Wheeler and Tiefelsdorf, 2005), this SNVC model is stable and quite robus against spurious correlations. So, I recommend using the SNVC model even if the analysis perpose is estimating SVCs.
+
+A SNVC model is estimated by specifying x_nvc = TRUE in the resf_vc function as follows:
+```{r warning=F, message=F}
+res	  <- resf_vc(y=y,x=x,xconst=xconst,meig=meig, x_nvc =TRUE)
+res
+```
+This model assume SNVC on x and constant coefficients on xconst. By default, coefficient type (SNVC, SVC, NVC, or constant) on x is selected.
+
+It is also possible to assume SNVCs on x and NVCs on xcnost by specifying xconst_nvc = TRUE as follows:
+```{r warning=F, message=F}
+res	  <- resf_vc(y=y,x=x,xconst=xconst,meig=meig, x_nvc =TRUE, xconst_nvc=TRUE)
+res
+```
+
+By default, coefficient type (SNVC, SVC, NVC, or constant) on x and those (NVC or const) on xconst are selected. The estimated SNVCs are plotted as follwos:
+```{r warning=F, message=F, fig.height = 4}
+plot_s(res,0)           # Spatially varying intercept
+plot_s(res,1)           # 1st SNVC
+```
+
+NVCs on xconst is plotted by specifying xtype="xconst" in the plot_n function as below. The solid line denotes the estimated NVC and the grey area denotes the 95 percent confidence interval:
+```{r  warning=F, message=F, fig.width = 4, fig.height= 4}
+plot_n(res,4,xtype="xconst")#NVC in the 4-th NVC
+plot_n(res,6,xtype="xconst")#NVC in the 6-th NVC
+```
+
+
+## Models with group effects
+
+### Outline
+
+Two group effects are available in this package:
+
+1. Spatially dependent group effects. Spatial dependence among groups are modeled instead of modeling spatial dependence among individuals.
+2. Spatially independent group effects assuming independence across groups (usual group effects).
+
+They are estimated in the resf and resf_vc functions. When considering both these effects, the resf function estimates the following model (if no NVC is assumed):
+$$y_i=\sum^K_{k=1}x_{i,k}\beta_k+f_{MC}(g_{I(0)})+\sum^H_{h=1}\gamma(g_{I(h)})+\epsilon_i, \hspace{0.5cm}\epsilon_i \sim N(0, \sigma^2),$$
+where $g_{I(0)},g_{I(1)},\ldots,g_{I(H)}$ represent group variables.$f_{MC}(g_{I(0)})$ denotes spatially dependent group effects whereas $\gamma(g_{I(h)})$ denotes spatially independent group effects for the h-th group variable. On the other hand, the resf_vc function can estimate the following model considering these two effects (again, no NVC is assumed):
+$$y_i=\sum^K_{k=1}x_{i,k}\beta_{i,k}+f_{MC}(g_{I(0)})+\sum^H_{h=1}\gamma(g_{I(h)})+\epsilon_i, \hspace{0.5cm}
+\beta_{i,k}=b_k + f_{MC,k}(g_{i(0)}), \hspace{0.5cm} \epsilon_i \sim N(0, \sigma^2),$$
+Below, multilevel modeling, small area estimation, and panel data analysis are demonstrated.
+
+### Multilevel model
+Data often has multilevel structure. For example, school achievement of individual student changes depending on class and school. Condominium unit price depends not only on unit attributes but also building attributes. Multilevel modeling is required to explicitly consider such multilevel structure behind data and perform spatial regressions.
+
+This section demonstrates estimation the model considering the two group effects using the resf function. The data used is the boston housing datasets that consist of 506 samples in 92 towns, which are regarded as groups. To model spatially dependent group effects, Moran eigenvectors are defined by groups. It is done by specifying s_id in the meigen function using a group variable, which is the town name (TOWNNO) in this case, as follows:
+```{r  warning=F, message=F, fig.height= 4}
+xgroup<- boston.c[,"TOWNNO"]
+coords<- boston.c[,c("LON","LAT")]
+meig_g<- meigen(coords=coords, s_id=xgroup)
+```
+
+When additionally estimating spatially independent group effects, the user needs to specify xgroup in the resf function by one or more group variables as follows:
+```{r  warning=F, message=F, fig.height= 4}
+x	    <- boston.c[,c("CRIM","ZN","INDUS", "CHAS", "NOX","RM", "AGE")]
+res   <- resf(y = y, x = x, meig = meig_g, xgroup = xgroup)
+res
+```
+
+The estimated independent group effects are extracted as
+```{r  warning=F, message=F, fig.height= 4}
+res$b_g[[1]][1:5,]# Estimates in the first 5 groups
+```
+
+### Small area estimation
+Small area estimation (SAE; Ghosh and Rao, 1994) is a statistical technique estimating parameters for small areas such as districts and municipality. SAE is useful to obtain reliable small area statistics from noisy data. The resf and resf_vc functions are available for SEA (see As explained in Murakami 2020 for further detail).
+
+The boston housing datasets consists of 506 samples in 92 towns. This section estimates the standard housing price in the I-th towns by assuming the following model:
+$$y_I=\hat{y}_I+ \epsilon_I, \hspace{0.5cm} \epsilon_I \sim N ( 0, \frac{\sigma^2}{N_I} ) \hspace{0.5cm}$$
+where $\hat{y}_I=\sum^{N_I}_{i=1}{\frac{\hat{y}_i}{N_I}}$. This model decomposes the obtarved mean house price $y_I$ in the I-th town into the standard price $\hat{y}_I$ and noise $\epsilon_I$, which reduces as the number of samples in the I-th town increases. The standard price is defined by an aggregate of the predictors $\hat{y}_i$ by individuals.  
+
+The above equation suggests that, if $\hat{y}_i$ is predicted using the resf or resf_vc function and aggregated into the towns, we can estimate the standard house price. Here is a sample code for the individual level prediction:
+```{r  warning=F, message=F, fig.height= 4}
+r_res <-resf(y=y, x=x, meig=meig_g, xgroup=xgroup)
+pred  <-predict0(r_res, x0=x, meig0=meig_g, xgroup0=xgroup)
+pred$pred[1:5,]
+```
+
+As shown above, the predict0 function returns predicted values (pred), predicted trends (xb), and predicted residual spatial components (sf_residuals), and predicted group effects (xgroup). Then, these individual-level variables are aggregated into towns. Here is a code:
+```{r  warning=F, message=F, fig.height= 4}
+adat  <- aggregate(data.frame(y, pred$pred),by=list(xgroup),mean)
+adat[1:5,]
+```
+The outputs are the predicted standard price (pred), trend (xb), spatially dependent group effects (sf_residual), and spatially independent group effects (xgroup) by the towns.
+
+To map the result, spatial polygones for the towns are loaded and combined with our estimates:
+```{r  warning=F, message=F, fig.height= 4}
+require(rgdal)
+require(rgeos)
+require(dplyr)
+boston.tr   <- readOGR(system.file("shapes/boston_tracts.shp",package="spData")[1])
+b1          <- st_as_sf(boston.tr)
+b1_dissolve <- b1 %>% group_by(TOWNNO) %>% summarize() #dissolve
+boston.tr2  <- as_Spatial(b1_dissolve)
+boston.tr2@data$id<- 1:(dim(boston.tr2)[1])
+b2_dat      <- boston.tr2@data
+b2_dat2     <- merge(b2_dat, adat,by.x="TOWNNO",by.y="Group.1",all.x=TRUE)
+```
+
+Here are the maps of our estimates. In the figure, "y" denotes the observed mean prices and "pred" denotes our predicted standard price. While they are similar, there are some differences in towns with high housing prices.
+```{r  warning=F, message=F, fig.height= 4}
+boston.tr2@data<- b2_dat2[order(b2_dat2$id),]
+spplot(boston.tr2,c("y","pred"), lwd=0.3)
+```
+
+Here are elements in the predicted values. The maps below show that each element explains different things each other:
+```{r  warning=F, message=F, fig.height= 4}
+spplot(boston.tr2,c("xgroup","sf_residual"), lwd=0.3)
+spplot(boston.tr2,"xb", lwd=0.3)
+```
+
+Note that the resf_vc function is also available for SVC model-based SAE. Here is a sample code:
+```{r  warning=F, message=F, fig.height= 4}
+rv_res  <- resf_vc(y=y, x=x, meig=meig_g, xgroup=xgroup, x_sel=FALSE)
+pred_vc <- predict0_vc(rv_res, x0=x, meig0=meig_g, xgroup0=xgroup)
+adat_vc <- aggregate(data.frame(y, pred_vc$pred), by=list(xgroup), mean)
+adat_vc[1:5,]
+```
+
+
+### Longitudinal/panel data analysis
+The resf and resf_vc functions are also available for longitudinal or panel data analysis with/without S(N)VC (see Yu et al., 2020). Although this section takes resf as an example, resf_vc funciton-based panel analysis is implemented in the same way.
+
+For illustration, we use a panel data of 48 US states from 1970 to 1986, which is published in the plm package (Croissant and Millo, 2008). Because our approach uses spatial coordinates by default, we added center spatial coordinates (px and py) to the panel data. Here is the code: 
+```{r  warning=F, message=F, fig.height= 4}
+require(plm)
+require(spData)
+
+data(Produc, package = "plm")
+data(us_states)
+us_states2 <- data.frame(us_states$GEOID,us_states$NAME,st_coordinates(st_centroid(us_states)))
+names(us_states2)[3:4]<- c("px","py")
+us_states3 <- us_states2[order(us_states2[,1]),][-8,]
+us_states3$state<- unique(Produc[,1])
+pdat0      <- na.omit(merge(Produc,us_states3[,c(3:5)],by="state",all.x=TRUE,sort=FALSE))
+pdat       <- pdat0[order(pdat0$state,pdat0$year),]
+pdat[1:5,]
+```
+
+Here are the first 5 rows of the data:
+```{r  warning=F, message=F, fig.height= 4}
+pdat[1:5,]
+```
+
+Following a vignette of the plm package, this section uses logged gross state product as explained variables (y) and logged public capital stock (log_pcap), logged private capital stock (log_pc), logged labor input measured by the employment in non-agriculturural payrolls (log_emp), and unemployment rate (unemp) as covariables. 
+```{r  warning=F, message=F, fig.height= 4}
+y     <- log(pdat$gsp)
+x     <- data.frame(log_pcap=log(pdat$pcap), log_pc=log(pdat$pc),
+                    log_emp=log(pdat$emp), unemp=pdat$unemp)
+```
+
+Because spatial coordinates are defined by states, Moran eigenvectors must be extracted by states by specifying s_id in the meigen function as follows:
+```{r  warning=F, message=F, fig.height= 4}
+coords<- pdat[,c("px", "py")]
+s_id  <- pdat$state
+meig_p<- meigen(coords,s_id=s_id)# Moran eigenvectors by states
+```
+
+Currently, the following spatial panel models are available: pooling model (no group effects); individual random effects model (state-level group effects)l time random effects model (year-level group effects); two-way random effects model (state and year-level group effects). All these models consider residual spatial dependence. Here are the codes implementing these models:
+```{r  warning=F, message=F, fig.height= 4}
+pmod0 <- resf(y=y,x=x,meig=meig_p) # pooling model
+
+xgroup<- pdat[,c("state")]
+pmod1 <- resf(y=y,x=x,meig=meig_p,xgroup=xgroup)# individual model
+
+xgroup<- pdat[,c("year")]
+pmod2 <- resf(y=y,x=x,meig=meig_p,xgroup=xgroup)# time model
+
+xgroup<- pdat[,c("state","year")]
+pmod3 <- resf(y=y,x=x,meig=meig_p,xgroup=xgroup)# two-way model
+```
+
+Among these models, the two-way model indicates the smallest BIC. The output is summarized as
+```{r  warning=F, message=F, fig.height= 4}
+pmod3
+```
+
+The estimted group effects are displayed as follows:
+```{r  warning=F, message=F, fig.height= 4}
+s_g   <- pmod3$b_g[[1]]
+s_g[1:5,]# State-level group effects
+t_g   <- pmod3$b_g[[2]]
+t_g[1:5,]# Year-level group effects
+```
+
+For validation, the same panel model (but without spatial dependence) is estimated using the plm function:
+```{r  warning=F, message=F, fig.width= 4, fig.height= 4}
+pm0    <- plm(log(gsp) ~ log(pcap) + log(pc) + log(emp) + unemp,
+              data = pdat, effect="twoways",model="random")
+pm0
+s_g_plm<- ranef(pm0,"individual")
+t_g_plm<- ranef(pm0,"time")
+```
+
+The coefficient estimates are similar. The plots below compare estimated group effects. Estimated state-level effects have difference becourse our models consider residual spatial dependence whereas plm does not (by default). Time effects are quite similar. 
+```{r  warning=F, message=F, fig.width= 4, fig.height= 4}
+plot(s_g_plm,s_g[,1],xlab="plm",ylab="resf")
+abline(0,1,col="red")
+plot(t_g_plm,t_g[,1],xlab="plm",ylab="resf")
+abline(0,1,col="red")
+```
+
+## Spatially filtered unconditional quantile regression
+While the usual (conditional) quantile regression (CQR) estimates the influence of $x_k$ on the $\tau$-th conditional quantile of $y$, $q_\tau(y|x_k)$, the unconditional quantile regression estimates the influence of $x_k$ on the "unconditional" quantile of y, $q_\tau(y)$ (Firpo et al., 2009).
+
+Suppose that $y$ and $x_k$ represent land price and accessibility respectively. UQR estimates the influence of accessibility on land price by quantile; it is interpretable and useful for e.g. hedonic land price analysis. By contrast, this interpretation does not hold for CQR because it estimates the influence of accessibility on conditional land prices (land price conditional on explanatory variables). Higher conditional land price does not mean higher land price, but rather, it means overprice relative to the price expected by the explanatory variables. Thus, CQR has difficulty in its interpretation in some cases including hedonic land price modeling.
+
+The spatail filter UQR (SF-UQR) model (Murakami and Seya, 2019), which is implemented in this package, is formulated as
+$$q_\tau(y_i)=\sum^K_{k=1}x_{i,k}\beta_{k,\tau}+f_{MC,\tau}(s_i)+\epsilon_{i,\tau}, \hspace{0.5cm}\epsilon_{i,\tau} \sim N(0, \sigma^2_\tau),$$
+This model is a UQR considering spatial dependence. 
+
+The resf_qr function implemenents this model. Below is a sample code. If boot=TRUE in resf_qr, a semiparametric bootstrapping is performed to estimate the standard errors of the regression coefficients. By default, this function estimates models at 0.1, 0.2,..., 0.9 quantiles. 
+```{r  warning=F, message=F, fig.width= 4, fig.height= 4}
+y	    <- boston.c[, "CMEDV" ]
+x	    <- boston.c[,c("CRIM","ZN","INDUS", "CHAS", "NOX","RM", "AGE")]
+coords<- boston.c[,c("LON","LAT")]
+meig 	<- meigen(coords=coords)
+res	  <- resf_qr(y=y,x=x,meig=meig, boot=TRUE)
+```
+
+Here is a summary of the estimation result:
+```{r  warning=F, message=F, fig.width= 4, fig.height= 4}
+res
+```
+
+The estimated coefficients can be visualized using the plot_qr function as below. The numbers 1 to 5 specify which  coefficients are plotted (1: intercept). In each panel, solid lines are estimated coefficients and gray areas are their 95% confidence intervals.
+```{r  warning=F, message=F, fig.width= 4, fig.height= 4}
+plot_qr( res, 1 )
+plot_qr( res, 2 )
+plot_qr( res, 3 )
+plot_qr( res, 4 )
+plot_qr( res, 5 )
+```
+
+Standard errors and the scaled Moran coefficient (Moran.I/max(Moran.I)), which is a measure of spatial scale by quantile, are plotted if par = "s" is added. Here are the plots:
+```{r  warning=F, message=F, fig.width= 4, fig.height= 4}
+plot_qr( res, par = "s" , 1 )
+plot_qr( res, par = "s" , 2 )
+```
+
+
+## Spatial prediction
+This package provides functions for ESF/RE-ESF-based spatial interpolation minimizing the expected prediction error (just like kriging) . RE-ESF approximates a Gaussian process or the kriging model, which has actively been used for spatial prediction, and ESF is a special case (Murakami and Griffith, 2015). Because ESF and RE-ESF perform approximations, their spatial predictions might be less accurate relative to kriging. Instead, they are faster and available for very large samples.
+
+The predict0 function is used for prediction based on resf or besf function while the predict0_vc function is used for resf_vc or besf_vc function (see Section 4 for besf and besf_vc functions).
+
+In this tutorial, the Lucas housing price data with sample size being 25,357 is used. In the prediction, "price" is used as explained variables, and "age", "rooms","beds","syear" are used as covariates.
+```{r  warning=F, message=F}
+require(spData)
+data(house)
+dat   <- data.frame(coordinates(house), house@data[,c("price","age","rooms","beds","syear")])
+```
+
+20,000 randomly selected samples are used for model estimation and the other 5,357 samples are used for accuracy evaluation. The code below creates the data for obseravation sites (coords, y, x) and those for unobesrved sites (coords0, y0, x0):
+```{r  warning=F, message=F}
+samp	<- sample(dim(dat)[1], 20000)
+coords<- dat[samp ,c("long","lat")]
+y	    <- log(dat[samp,"price"])
+x     <- dat[samp,c("age","rooms","beds","syear")]
+
+coords0<- dat[-samp ,c("long","lat")]
+y0	  <- log(dat[-samp,"price"]) # for valudation
+x0    <- dat[-samp,c("age","rooms","beds","syear")]
+```
+
+The prediction is done in two steps: (1) evaluation of Moran eigenvectors at prediction sites using the meigen0 function; (2) prediction using the predict0 function. Below is a sample code based on the resf function:
+```{r  warning=F, message=F}
+start.time1<-proc.time()###### just for CP time evaluation
+meig     <- meigen_f(coords)
+meig0    <- meigen0( meig=meig, coords0=coords0 )
+mod	     <- resf( y = y, x = x, meig = meig )
+pred0	   <- predict0( mod = mod, x0 = x0, meig0=meig0 )
+end.time1<- proc.time()###### just for CP time evaluation
+```
+Note that the first and the last lines are just for computing time evaluation. NVCs are considered if adding NVC =TRUE in the resf function. The meigen_f function is used for fast computation.
+
+The outputs shown below include predicted values (pred), predicted trend (xb), and predicted residual spatial component (sf_residuals).
+```{r  warning=F, message=F}
+pred0$pred[1:5,]
+pred     <- pred0$pred[,1]
+```
+
+On the other hand, here is a code for a spatial prediction based on a S(N)VC model:
+```{r  warning=F, message=F}
+start.time2<-proc.time()###### just for CP time evaluation
+meig     <- meigen_f(coords)
+meig0    <- meigen0( meig=meig, coords0=coords0 )
+mod2	   <- resf_vc( y = y, x = x, meig = meig )
+pred02   <- predict0_vc( mod = mod2, x0 = x0, meig0=meig0 )
+end.time2<- proc.time()###### just for CP time evaluation
+```
+NVCs are considered by adding NVC =TRUE in the resf_vc function. Here are the output variables:
+```{r  warning=F, message=F}
+pred02$pred[1:5,]
+pred2    <- pred02$pred[,1]
+```
+
+The root mean squared prediction error (RMSPE) and the computational time of the spatial regression model (resf) are as follows:
+```{r  warning=F, message=F}
+sqrt(sum((pred-y0)^2)/length(y0))#rmse
+(end.time1 - start.time1)[3]#computational time (second)
+```
+whereas those of the SVC model (resf_vc) are as follows:
+```{r  warning=F, message=F}
+sqrt(sum((pred2-y0)^2)/length(y0))#rmse
+(end.time2 - start.time2)[3]#computational time (second)
+```
+The results suggest that both models are available for large samples. It is also demonstrated that while the spatial regression model is faster than the SVC model, the SVC model is slightely more accurate. The actual values (y0) and predicted values (pred/pred2) are compared below:
+```{r  warning=F, message=F,fig.height=4}
+par(mfrow=c(1,2)) 
+plot(y0,pred);abline(0,1,col="red")
+plot(y0,pred2);abline(0,1,col="red")
+```
+
+# Low rank spatial econometric models
+While ESF/RE-ESF and their extensions approximate Gaussian processes, this section explains low rank spatial econometric models approximating spatial econometric models (see Murakami et al., 2018).
+
+## Spatial weight matrix and their eigenvectors
+The low rank models use eigenvectors and eigenvalues of a spatial connectivity matrix, which is called spatial weight matrix or the W matrix in spatial econometrics. The weigen function is available for the eigen-decomposition. Here is a code extracting the eigenvectors and eigenvalues from spatial polygons:
+```{r  warning=F, message=F}
+data( boston )
+poly	<- readOGR( system.file( "shapes/boston_tracts.shp", package = "spData" )[ 1 ] )
+weig	<- weigen( poly )			#### Rook adjacency-based W
+```
+By default, the weigen function returns a Rook adjacency-based W matrix. Other than that, knn-based W, Delauney trangulation-based W, and user-specified W are also available.
+
+## Spatial regression models
+### Low rank spatial lag model
+The low rank spatial lag model (LSLM) approximates the following model:
+$$y_i=\beta_0+z_i+\epsilon_i\hspace{0.5cm}\epsilon_i \sim N(0,\sigma^2)\\
+z_i=\rho\sum^N_{i \neq j}w_{i,j}z_j+\sum^K_{k \neq 1}x_{i,k}\beta_k+u_i \hspace{0.5cm} u_i \sim N(0,\tau^2)$$
+where $z_i$ is defined by the classical spatial lag model (SLM; see LeSage and Pace, 2009) with parameters $\rho$ and $\tau^2$. Just like the original SLM, $\rho$ takes a value between 1 and $1/\lambda_N (< 0)$. Larger positive $\rho$ means stronger positive dependence. $\tau^2$ represents the variance of the SLM-based spatial process (i.e., $z_i$) while $\sigma^2$ represents the variance of the data noise $\epsilon_i$. Because of the additional noise term, the LSLM estimates are different from the original SLM, in particular if data is noisy.
+
+The LSLM is implemented using the lslm function. Here is a sample code:
+```{r  warning=F, message=F}
+y	    <- boston.c[, "CMEDV" ]
+x	    <- boston.c[,c("CRIM","ZN","INDUS", "CHAS", "NOX","RM", "AGE")]
+coords<- boston.c[,c("LON","LAT")]
+res   <- lslm( y = y, x = x, weig = weig, boot = TRUE )
+```
+If boot=TRUE, a nonparametric bootstrapping is performed to estimate the 95 percent confidence intervals for the $\tau^2$ and $\rho$ parameters, and the direct and indirect effects, which quantify spill-over effects. Default is FALSE. Here is the output in which {s_rho, sp_SE} are parameters {$\rho, \tau^2$}:
+```{r  warning=F, message=F}
+res
+```
+
+### Low rank spatial error model
+The low rank spatial error model (LSEM) approximates the following model:
+$$y_i=\beta_0+z_i+\epsilon_i\hspace{0.5cm}\epsilon_i \sim N(0,\sigma^2)\\
+z_i=\sum^K_{k \neq 1}x_{i,k}\beta_k+e_i \hspace{0.5cm} e_i=\lambda\sum^N_{i \neq j}w_{i,j}e_j+ u_i \hspace{0.5cm} u_i \sim N(0,\tau^2)$$
+where $z_i$ is defined by the classical spatial error model (SLM) with parameters $\lambda$ and $\tau^2$. Just like the original SEM, $\lambda$ takes a larger positive value in the presence of stronger positive dependence. $\tau^2$ represents the variance of the SEM-based spatial process (i.e., $z_i$). As with LSLM, the LSEM estimates can be different from the original SEM if data is noisy.
+
+The lsem function estimates LSEM as follows:
+```{r  warning=F, message=F}
+data(boston)
+res   <- lsem( y = y, x = x, weig = weig )
+res
+```
+
+{s_lambda, sp_SE} are parameters {$\lambda, \tau^2$}. 
+
+# Tips for modeling large samples
+## Eigen-decomposition
+The meigen function implements an eigen-decomposition that is slow for large samples. For fast eigen-approximation, the meigen_f function is available. By default, this function approximates 200 eigenvectors; 200 is based on simulation results in Murakami and Griffith (2019a). The computation is further accelerated by reducing the number of eigenvectors. It is achieved by specifying enum by a number smaller than 200. While the meigen function took 243.8 seconds for 5,000 samples, the meigen_f took less than 1 second as demonstrated below:
+
+```{r  warning=F, message=F}
+coords_test		<- cbind( rnorm( 5000 ), rnorm( 5000 ) )
+system.time( meig_test200	<- meigen_f( coords = coords_test ))[3]
+system.time( meig_test100	<- meigen_f( coords = coords_test, enum=100 ))[3]
+system.time( meig_test50	<- meigen_f( coords = coords_test, enum=50 ))[3]
+```
+
+On the other hand, the weigen function impelements the ARPACK routine for fast eigen-decomposition by default. The computational times with 5,000 samples and enum = 200 (default), 100, and 50 are as follows:
+
+```{r  warning=F, message=F}
+system.time( weig_test200	<- weigen( coords_test ))[3]
+system.time( weig_test100	<- weigen( coords_test, enum=100 ))[3]
+system.time( weig_test50	<- weigen( coords_test, enum=50 ))[3]
+```
+
+## Parameter estimation
+The basic ESF model is estimated computationally efficiently by specifying fn = "all" in the esf function. This setting is acceptable for large samples (Murakami and Griffith, 2019a). The resf and resf_vc functions estimate all the models explained above using a fast estimation algorithm developed in Murakami and Griffith (2019b). They are available for large samples (e.g., 100,000 samples). Although the SF-UQR model requires a bootstrapping to estimate confidential intervals for the coefficients, the computational cost for the iteration does not dependent on sample size. So, it is available for large samples too.
+
+## For very large samples (e.g., millions of samples)
+A computational limitation is the memory consumption of the meigen and meigen_f functions to store Moran eigenvectors. Because of the limitation, the resf and resf_vc functions are not available for very large samples (e.g., millions of samples). To overcome this limitation, the besf and besf_vc functions perform the same calculation as resf and resf_vc but without saving the eigenvectors in the memory. Besides, for fast computation, these functions perform a parallel model estimation (see Murakami and Griffith, 2019c). 
+
+Here is an example implementing a spatial regression model using the besf function and a SVC model using the besf_vc function:
+
+```{r  warning=F, message=F}
+data(house)
+dat   <- data.frame(coordinates(house),
+                   house@data[,c("price","age","rooms","beds","syear")])
+coords<- dat[ ,c("long","lat")]
+y	    <- log(dat[,"price"])
+x     <- dat[,c("age","rooms","beds","syear")]
+res1	<- besf(y=y, x=x, coords=coords)
+res1
+res2	<- besf_vc(y=y, x=x, coords=coords)
+res2
+```
+Roughly speaking, these functions are faster than the resf and resf_vc functions if the sample size is more than 100,000.
+
+I have evaluated the computational time for a SVC modeling using the besf_vc function using a Mac Pro (3.5 GHz, 12-Core Intel Xeon E5 processor with 64 GB memory). The besf_vc function took only 8.0 minutes to estimate the 7 SVCs from 1 million samples. I also confirmed that besf_vc took 70.3 minutes to estimate the same model from 10 million samples. besf and besf_vc are suitable for very large data analysis.
+
+# Future updates
+Spatiotemporal models, non-Gaussian models, and extensions of the low rank spatial econometric models will be implemented in the future.
+
+# Reference
+-	Croissant, Y., and Millo, G. (2008) Panel data econometrics in R: The plm package. Journal of statistical software, 27(2), 1-43.
+-	Firpo, S., Fortin, N.M., and Lemieux, T. (2009) Unconditional quantile regressions. Econometrica, 77 (3), 953-973.
+-	Griffith, D.A. (2003) Spatial autocorrelation and spatial filtering: gaining understanding through theory and scientific visualization. Springer Science & Business Media.
+- Ghosh, M., and Rao, J. N.K. (1994) Small area estimation: an appraisal. Statistical science, 9 (1), 55-76.
+- LeSage, J.P. and Pace, R.K. (2009) Introduction to Spatial Econometrics. CRC Press. 
+-	Murakami, D. and Griffith, D.A. (2015) Random effects specifications in eigenvector spatial filtering: a simulation study. Journal of Geographical Systems, 17 (4), 311-331.
+-	Murakami, D. and Griffith, D.A. (2019a) Eigenvector spatial filtering for large data sets: fixed and random effects approaches. Geographical Analysis, 51 (1), 23-49.
+-	Murakami, D. and Griffith, D.A. (2019b) Spatially varying coefficient modeling for large datasets: Eliminating N from spatial regressions. Spatial Statistics, 30, 39-64.
+-	Murakami, D. and Griffith, D.A. (2019c) A memory-free spatial additive mixed modeling for big spatial data. Japan Journal of Statistics and Data Science, doi: 10.1007/s42081-019-00063-x.
+-	Murakami, D., Griffith, D.A. (2020) Balancing spatial and non-spatially variations in varying coefficient modeling: a remedy for spurious correlation. Arxiv, 2005:09981.
+-	Murakami, D. and Seya, H. (2019) Spatially filtered unconditional quantile regression. Environmetrics, 30 (5), e2556.
+-	Murakami, D., Seya, H., and Griffith, D.A. (2018) Low rank spatial econometric models. Arxiv, 1810.02956.
+-	Murakami, D., Yoshida, T., Seya, H., Griffith, D.A., and Yamagata, Y. (2017) A Moran coefficient-based mixed effects approach to investigate spatially varying relationships. Spatial Statistics, 19, 68-89.
+-	Wheeler, D., and Tiefelsdorf, M. (2005) Multicollinearity and correlation among local regression coefficients in geographically weighted regression. Journal of Geographical Systems, 7(2), 161-187.
+-	Yu, D., Murakami, D., Zhang, Y., Wu, X., Li, D., Wang, X., and Li, G. (2020) Investigating high-speed rail construction's support to county level regional development in China: An eigenvector based spatial filtering panel data analysis. Transportation Research Part B: Methodological, 133, 21-37.
