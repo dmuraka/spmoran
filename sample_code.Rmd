@@ -26,6 +26,7 @@ if (!("rgeos" %in% ipkgs)) install.packages("rgeos")
 if (!("dplyr" %in% ipkgs)) install.packages("dplyr")
 if (!("plm" %in% ipkgs))   install.packages("plm")
 if (!("spData" %in% ipkgs))install.packages("spData")
+if (!("spmoran" %in% ipkgs))install.packages("spmoran")
 ```
 
 # Introduction
