@@ -1,3 +1,4 @@
+#### For details, see spmoran/vignette_nongaussian.pdf ####
 
 ipkgs <- rownames(installed.packages())
 if (!("spdep" %in% ipkgs)) install.packages("spdep")
