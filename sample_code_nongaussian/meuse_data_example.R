@@ -2,10 +2,9 @@
 
 ipkgs <- rownames(installed.packages())
 if (!("sf" %in% ipkgs)) install.packages("sf")
-if (!("automap" %in% ipkgs)) install.packages("automap")
 if (!("spmoran" %in% ipkgs)) install.packages("spmoran")
 
-library(sf);library(automap);library(spmoran)
+library(sf);library(spmoran)
 
 data(meuse)
 meuse[1:5,]
@@ -54,20 +53,15 @@ coordinates(meuse) <- c("x", "y")
 meuse_sf<-st_as_sf(meuse)
 plot(meuse_sf[,"zinc"], pch=20, axes=TRUE, key.pos = 1)
 
-data(meuse.grid)
-gridded(meuse.grid) <- c("x", "y")
-kres   <- autoKrige(log(zinc)~dist+ffreq, meuse,meuse.grid)
-
 pred   <- data.frame(coords0,pred=pres$pred[,"pred"],
                      len95=pres$pred_quantile$q0.975 - pres$pred_quantile$q0.025,
                      pred_transG=pres$pred[,"pred_transG"],
                      pred_transG_se=pres$pred[,"pred_transG_se"],
-                     pres$pred_quantile,
-                     kpred=exp(kres$krige_output$var1.pred))
+                     pres$pred_quantile)
 coordinates(pred)<-c("x","y")
 pred_sf <-st_as_sf(pred)
 
-plot(pred_sf[,c("pred","kpred")], pch=20, axes=TRUE, key.pos = 1)
+plot(pred_sf[,c("pred")], pch=20, axes=TRUE, key.pos = 1)
 plot(pred_sf[,c("q0.025","q0.5","q0.975")], pch=20, axes=TRUE, key.pos = 1)
 plot(pred_sf[,c("len95")], pch=20, axes=TRUE, key.pos = 1)
 plot(pred_sf[,"pred_transG"], pch=20, axes=TRUE, key.pos = 1)
