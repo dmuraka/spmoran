@@ -4,6 +4,7 @@ ipkgs <- rownames(installed.packages())
 if (!("spdep" %in% ipkgs)) install.packages("spdep")
 if (!("sf" %in% ipkgs)) install.packages("sf")
 if (!("spmoran" %in% ipkgs)) install.packages("spmoran")
+if(packageVersion("spmoran") < "0.2.2.5") install.packages("spmoran")
 
 library(spdep);library(sf);library(spmoran)
 
