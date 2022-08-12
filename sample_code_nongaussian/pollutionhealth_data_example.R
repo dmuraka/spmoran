@@ -7,6 +7,7 @@ if (!("rgeos" %in% ipkgs)) install.packages("rgeos")
 if (!("CARBayesdata" %in% ipkgs)) install.packages("CARBayesdata")
 if (!("spdep" %in% ipkgs)) install.packages("spdep")
 if (!("spmoran" %in% ipkgs)) install.packages("spmoran")
+if(packageVersion("spmoran") < "0.2.2.5") install.packages("spmoran")
 
 library(sf);library(rgeos);library(CARBayesdata);library(spdep);library(spmoran)
 
