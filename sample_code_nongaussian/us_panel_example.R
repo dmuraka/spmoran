@@ -4,6 +4,7 @@ if (!("plm" %in% ipkgs)) install.packages("plm")
 if (!("splm" %in% ipkgs)) install.packages("splm")
 if (!("spData" %in% ipkgs)) install.packages("spData")
 if (!("spmoran" %in% ipkgs)) install.packages("spmoran")
+if(packageVersion("spmoran") < "0.2.2.5") install.packages("spmoran")
 
 library(plm);library(splm);library(spData);library(spmoran)
 
