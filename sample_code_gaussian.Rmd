@@ -1,12 +1,13 @@
 ---
-title: 'Spatial regression using the spmoran package: Boston housing price data examples'
+title: 'Gaussian spatial regression using the spmoran package: case study examples'
 author: "Daisuke Murakami"
-date: "2021/09/14"
+date: "2023/11/01"
 output:
   pdf_document:
     number_sections: yes
     toc: yes
     toc_depth: 4
+    #toc_float: true
 ---
 
 ```{r setup, include=FALSE}
@@ -14,18 +15,14 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r Prerequisites, include=FALSE}
-# Loading (installing if nessesary) required packages
+# Loading (installing if necessary) required packages
 
 ipkgs <- rownames(installed.packages())
 if (!("spdep" %in% ipkgs)) install.packages("spdep")
-if (!("rgdal" %in% ipkgs)) install.packages("rgdal")
-if (!("rgeos" %in% ipkgs)) install.packages("rgeos")
 if (!("dplyr" %in% ipkgs)) install.packages("dplyr")
 if (!("plm" %in% ipkgs))   install.packages("plm")
 if (!("spData" %in% ipkgs))install.packages("spData")
 if (!("spmoran" %in% ipkgs))install.packages("spmoran")
-
-if(packageVersion("spmoran") < "0.2.2.5") install.packages("spmoran")
 
 ```
 
@@ -33,15 +30,15 @@ if(packageVersion("spmoran") < "0.2.2.5") install.packages("spmoran")
 
 This package provides functions for estimating Gaussian and non-Gaussian spatial regression models and extensions, including spatially and non-spatially varying coefficient models, models with group effects, spatial unconditional quantile regression models, and low rank spatial econometric models. All these models are estimated computationally efficiently. 
 
-An approximate Gaussian process (GP or kriging model), which is interpretable in terms of the Moran coefficient (MC), is used for modeling the spatial process. The approximate GP is defined by a linear combination of the Moran eigenvectors (MEs) corresponding to positive eigenvalue, which are known to explain positive spatial dependence. The resulting spatial process describes positively dependent map patterns (i.e., MC > 0), which are dominant in regional science (Griffith, 2003). Below, the spmoran package is used to analyze the Boston housing dataset.
+An approximate Gaussian process (GP or kriging model), which is interpretable in terms of the Moran coefficient (MC), is used for modeling the spatial process. The approximate GP is defined by a linear combination of the Moran eigenvectors (MEs) corresponding to positive eigenvalue, which are known to explain positive spatial dependence. The resulting spatial process describes positively dependent map patterns (i.e., MC > 0), which are dominant in regional science (Griffith, 2003). Below, the spmoran package is used to analyse the Boston housing dataset.
 
-The sample codes used below are available from <https://github.com/dmuraka/spmoran>. While this vignette mainly focuses on Gaussian regression modeling, another vignette focusing on non-Gaussian regression modeling and count regression modeling is also available from the same GitHub page (and Murakami 2021).
+\textcolor{blue}{The sample codes used below are available from <https://github.com/dmuraka/spmoran>}. While this vignette mainly focuses on Gaussian regression modeling, another vignette focusing on non-Gaussian regression modeling and count regression modeling is also available from the same GitHub page (and Murakami 2021).
 
 ```{r warning=F, message=F}
 library(spmoran)
 ```
 
-# Gaussian spatial additive mixed models
+# Gaussian spatial regression models
 ## Basic models
 This section considers the following model:
 $$y_i=\sum^K_{k=1}x_{i,k}\beta_k+f_{MC}(s_i)+\epsilon_i, \hspace{0.5cm}
@@ -172,7 +169,6 @@ This model assumes SNVC on x and constant coefficients on xconst. By default, th
 It is also possible to assume SNVCs on x and NVCs on xcnost by specifying xconst_nvc = TRUE as follows:
 ```{r warning=F, message=F}
 res	  <- resf_vc(y=y,x=x,xconst=xconst,meig=meig, x_nvc =TRUE, xconst_nvc=TRUE)
-res
 ```
 
 By default, the coefficient type (SNVC, SVC, NVC, or constant) on x and those (NVC or const) on xconst are selected. The estimated SNVCs are plotted as follows:
@@ -254,34 +250,29 @@ The outputs are the predicted standard price (pred), trend (xb), spatially depen
 
 To map the result, spatial polygons for the towns are loaded and combined with our estimates:
 ```{r  warning=F, message=F, fig.height= 4}
-require(rgdal)
-require(rgeos)
 require(dplyr)
-boston.tr   <- readOGR(system.file("shapes/boston_tracts.shp",package="spData")[1])
-b1          <- st_as_sf(boston.tr)
-b1_dissolve <- b1 %>% group_by(TOWNNO) %>% summarize() #dissolve
-boston.tr2  <- as_Spatial(b1_dissolve)
-boston.tr2@data$id<- 1:(dim(boston.tr2)[1])
-b2_dat      <- boston.tr2@data
-b2_dat2     <- merge(b2_dat, adat,by.x="TOWNNO",by.y="Group.1",all.x=TRUE)
+b1           <- st_read(system.file("shapes/boston_tracts.shp",package="spData")[1])
+boston.tr2   <- b1 %>% group_by(TOWNNO) %>% summarize() #dissolve
+boston.tr2$id<- 1:(dim(boston.tr2)[1])
+boston.tr3   <- merge(boston.tr2, adat,by.x="TOWNNO",by.y="Group.1",all.x=TRUE)
 ```
 
 Here are the maps of our estimates. "y" denotes the observed mean prices, and "pred" denotes our predicted standard price. While they are similar, there are some differences in towns with high housing prices.
 ```{r  warning=F, message=F, fig.height= 4}
-boston.tr2@data<- b2_dat2[order(b2_dat2$id),]
-spplot(boston.tr2,c("y","pred"), lwd=0.3)
+boston.tr4  <- boston.tr3[order(boston.tr3$id),]
+plot(boston.tr4[,c("y","pred")], lwd=0.3,axes=TRUE,key.pos=4)
 ```
 
 Here are the elements of the predicted values. The maps below show that each element explains different things to each other:
 ```{r  warning=F, message=F, fig.height= 4}
-spplot(boston.tr2,c("xgroup","sf_residual"), lwd=0.3)
-spplot(boston.tr2,"xb", lwd=0.3)
+plot(boston.tr4[,c("xgroup","sf_residual")], lwd=0.3,axes=TRUE,key.pos=4)
+plot(boston.tr4[,"xb"], lwd=0.3,axes=TRUE,key.pos=4,nbreaks=20)
 ```
 
 Note that the resf_vc function is also available for SVC model-based SAE. Here is a sample code:
-```{r  warning=F, message=F, fig.height= 4}
+```{r warning=F, message=F}
 rv_res  <- resf_vc(y=y, x=x, meig=meig_g, xgroup=xgroup, x_sel=FALSE)
-pred_vc <- predict0_vc(rv_res, x0=x, meig0=meig_g, xgroup0=xgroup)
+pred_vc <- predict0(rv_res, x0=x, meig0=meig_g, xgroup0=xgroup)
 adat_vc <- aggregate(data.frame(y, pred_vc$pred), by=list(xgroup), mean)
 adat_vc[1:5,]
 ```
@@ -370,37 +361,36 @@ abline(0,1,col="red")
 ```
 
 ## Spatial prediction
-This package provides functions for ESF/RE-ESF-based spatial interpolation minimizing the expected prediction error (just like kriging). RE-ESF approximates a Gaussian process or the kriging model, which has actively been used for spatial prediction, and ESF is a special case (Murakami and Griffith, 2015). Because ESF and RE-ESF perform approximations, their spatial predictions might be less accurate relative to kriging. Instead, they are faster and available for very large samples.
-
-The predict0 function is used for prediction based on the resf or besf function, while the predict0_vc function is used for resf_vc or besf_vc function (see Section 4 for besf and besf_vc functions).
+This package provides functions for ESF/RE-ESF-based spatial interpolation minimizing the expected prediction error (just like kriging). RE-ESF approximates a Gaussian process or the kriging model, which has actively been used for spatial prediction, and ESF is a special case (Murakami and Griffith, 2015). Because ESF and RE-ESF impose approximations, they are faster for very large samples.
 
 In this tutorial, the Lucas housing price data with sample size being 25,357 is used. In the prediction, "price" is used as the explained variable, and "age," "rooms," "beds," and "year" are used as covariates.
 ```{r  warning=F, message=F}
 require(spData)
 data(house)
-dat   <- data.frame(coordinates(house), house@data[,c("price","age","rooms","beds","syear")])
+dat0  <- st_as_sf(house)
+dat   <- data.frame(st_coordinates(dat0), dat0[,c("price","age","rooms","beds","syear")])
 ```
 
 A total of 20,000 randomly selected samples are used for model estimation, and the other 5,357 samples are used for accuracy evaluation. The code below creates the data for observation sites (coords, y, x) and for unobserved sites (coords0, y0, x0):
 ```{r  warning=F, message=F}
 samp	<- sample(dim(dat)[1], 20000)
-coords<- dat[samp ,c("long","lat")]
+coords<- dat[samp ,c("X","Y")]
 y	    <- log(dat[samp,"price"])
 x     <- dat[samp,c("age","rooms","beds","syear")]
 
-coords0<- dat[-samp ,c("long","lat")]
+coords0<- dat[-samp ,c("X","Y")]
 y0	  <- log(dat[-samp,"price"]) # for valudation
 x0    <- dat[-samp,c("age","rooms","beds","syear")]
 ```
 
 The prediction is done in two steps: (1) evaluation of Moran eigenvectors at prediction sites using the meigen0 function; (2) prediction using the predict0 function. Below is a sample code based on the resf function:
 ```{r  warning=F, message=F}
-start.time1<-proc.time()###### just for CP time evaluation
+start.time1<-proc.time()###### For CP time evaluation
 meig     <- meigen_f(coords)
 meig0    <- meigen0( meig=meig, coords0=coords0 )
 mod	     <- resf( y = y, x = x, meig = meig )
 pred0	   <- predict0( mod = mod, x0 = x0, meig0=meig0 )
-end.time1<- proc.time()###### just for CP time evaluation
+end.time1<- proc.time()###### For CP time evaluation
 ```
 Note that the first and last lines are just for computing time evaluation. NVCs are considered if adding NVC=TRUE in the resf function. The meigen_f function is used for fast computation.
 
@@ -411,13 +401,13 @@ pred     <- pred0$pred[,1]
 ```
 
 On the other hand, here is a code for a spatial prediction based on an S(N)VC model:
-```{r  warning=F, message=F}
-start.time2<-proc.time()###### just for CP time evaluation
+```{r warning=F, message=F}
+start.time2<-proc.time()###### For CP time evaluation
 meig     <- meigen_f(coords)
 meig0    <- meigen0( meig=meig, coords0=coords0 )
 mod2	   <- resf_vc( y = y, x = x, meig = meig )
-pred02   <- predict0_vc( mod = mod2, x0 = x0, meig0=meig0 )
-end.time2<- proc.time()###### just for CP time evaluation
+pred02   <- predict0( mod = mod2, x0 = x0, meig0=meig0 )
+end.time2<- proc.time()###### For CP time evaluation
 ```
 NVCs are considered by adding NVC=TRUE in the resf_vc function. Here are the output variables:
 ```{r  warning=F, message=F}
@@ -442,6 +432,24 @@ plot(y0,pred);abline(0,1,col="red")
 plot(y0,pred2);abline(0,1,col="red")
 ```
 
+(RE-)ESF considers a limited number of eigenvectors, which limits the model flexibility. Because of that, (RE-)ESF suffers from a degeneracy/over-smoothing problem that decreases modeling accuracy for large samples. The addlearn_local function is useful to address this problem. This function estimates an improved SVC model by aggregating/averaging the pre-estimated SVC model (i.e., mod2) with local SVC models that are estimated by k-means-based spatial clusters each of which contains roughly 600 samples (see Murakami et al., 2023). Unlike the resf_vc and/or besf_vc function, the improved SVC model considers not only (global) eigenvectors but also local eigenvectors; the resulting model accurately captures local patterns even from very large samples. 
+
+Here is a sample code for the model aggregation and prediction after the model aggregation:
+```{r warning=F, message=F}
+start.time3<-proc.time()  ###### For CP time evaluation
+mod3       <- addlearn_local(mod=mod2, meig0 = meig0, x0 = x0)
+pred3      <- mod3$pred0[,1]
+end.time3  <- proc.time() ###### For CP time evaluation
+```
+The resulting RMSE is confirmed to be smaller than mod2, which is before the model aggregation:
+```{r  warning=F, message=F}
+sqrt(sum((pred3-y0)^2)/length(y0))#rmse
+(end.time3 - start.time3)[3]#computational time (second)
+```
+While the addlearn_local function requires an additional computation time, it can be paralleled by specifying parallel = TRUE. The accuracy difference between the models with/without the model aggregation/averaging increases as the sample size increases. This addlearn_local function is especially recommended for larger samples.
+
+The addlearn_local function is also useful to improve SVC coefficient estimation accuracy as demonstrated in Murakami et al. (2023). See Section 6.3 for further detail.
+
 
 # Non-Gaussian spatial regression models
 This package is now available for modeling a wide variety of non-Gaussian data including count data. Unlike the conventional generalized linear model (GLM), the implemented model estimates the most likely data distribution (i.e., probability density/mass function) without explicitly specifying the data distribution (see Murakami et al., 2021). See Murakami (2021) or vignette_spmoran(nongaussian).pdf, which is another vignette in the same GitHub page <https://github.com/dmuraka/spmoran> for details on how to implement it.
@@ -457,7 +465,7 @@ $$q_\tau(y_i)=\sum^K_{k=1}x_{i,k}\beta_{k,\tau}+f_{MC,\tau}(s_i)+\epsilon_{i,\ta
 This model is a UQR considering spatial dependence.
 
 The resf_qr function implements this model. Below is a sample code. If boot=TRUE in resf_qr, a semiparametric bootstrapping is performed to estimate the standard errors of the regression coefficients. By default, this function estimates models at 0.1, 0.2,..., 0.9 quantiles.
-```{r  warning=F, message=F, fig.width= 4, fig.height= 4}
+```{r warning=F, message=F}
 y	    <- boston.c[, "CMEDV" ]
 x	    <- boston.c[,c("CRIM","ZN","INDUS", "CHAS", "NOX","RM", "AGE")]
 coords<- boston.c[,c("LON","LAT")]
@@ -492,7 +500,7 @@ While ESF/RE-ESF and their extensions approximate Gaussian processes, this secti
 The low rank models use eigenvectors and eigenvalues of a spatial connectivity matrix, which is called a spatial weight matrix or W matrix in spatial econometrics. The weigen function is available for the eigen-decomposition. Here is a code extracting the eigenvectors and eigenvalues from spatial polygons:
 ```{r  warning=F, message=F}
 data( boston )
-poly	<- readOGR( system.file( "shapes/boston_tracts.shp", package = "spData" )[ 1 ] )
+poly	<- st_read( system.file( "shapes/boston_tracts.shp", package = "spData" )[ 1 ] )
 weig	<- weigen( poly )			#### Rook adjacency-based W
 ```
 By default, the weigen function returns a Rook adjacency-based W matrix. Other than that, knn-based W, Delaunay triangulation-based W, and user-specified W are also available.
@@ -505,7 +513,7 @@ z_i=\rho\sum^N_{i \neq j}w_{i,j}z_j+\sum^K_{k \neq 1}x_{i,k}\beta_k+u_i \hspace{
 where $z_i$ is defined by the classical spatial lag model (SLM; see LeSage and Pace, 2009) with parameters $\rho$ and $\tau^2$. Just like the original SLM, $\rho$ takes a value between 1 and $1/\lambda_N (< 0)$. Larger positive $\rho$ means stronger positive dependence. $\tau^2$ represents the variance of the SLM-based spatial process (i.e., $z_i$), while $\sigma^2$ represents the variance of the data noise $\epsilon_i$. Because of the additional noise term, the LSLM estimates are different from the original SLM, in particular if data is noisy.
 
 The LSLM is implemented using the lslm function. Here is a sample code:
-```{r  warning=F, message=F}
+```{r warning=F, message=F}
 y	    <- boston.c[, "CMEDV" ]
 x	    <- boston.c[,c("CRIM","ZN","INDUS", "CHAS", "NOX","RM", "AGE")]
 coords<- boston.c[,c("LON","LAT")]
@@ -531,7 +539,7 @@ res
 
 {s_lambda, sp_SE} are parameters {$\lambda, \tau^2$}. 
 
-# Tips for modeling large samples
+# Modeling large samples
 ## Eigen-decomposition
 The meigen function implements an eigen-decomposition that is slow for large samples. For fast eigen-approximation, the meigen_f function is available. By default, this function approximates 200 eigenvectors; 200 is based on simulation results in Murakami and Griffith (2019a). The computation is further accelerated by reducing the number of eigenvectors. It is achieved by specifying enum by a number smaller than 200. While the meigen function took 243.8 seconds for 5,000 samples, the meigen_f took less than 1 second, as demonstrated below:
 
@@ -553,16 +561,42 @@ system.time( weig_test50	<- weigen( coords_test, enum=50 ))[3]
 ## Parameter estimation
 The basic ESF model is estimated computationally efficiently by specifying fn = "all" in the esf function. This setting is acceptable for large samples (Murakami and Griffith, 2019a). The resf and resf_vc functions estimate all the models explained above using a fast estimation algorithm developed in Murakami and Griffith (2019b). They are available for large samples (e.g., 100,000 samples). Although the SF-UQR model requires a bootstrapping to estimate confidential intervals for the coefficients, the computational cost for the iteration does not depend on sample size. Therefore, it is available for large samples too.
 
-## For very large samples (e.g., millions of samples)
+## Sub-model aggregation for improved scalability in terms of accuracy
+The spatial regressions implemented in this package rely on a low rank approximation (i.e., approximation that considers only a limited number of eigen-pairs). For large samples (e.g., n > 5,000), this approximation can lead to an degeneracy/over-smoothing of SVCs that decreases modeling accuracy. To address this problem, the addlearn_local function additionally learns local patterns in the SVCs by aggregating/averating a model pre-estimated by the resf_vc or besf_vc function with local SVC models, which are defined by k-means-based spatial clusters each of which contains roughly 600 samples (see Murakami et al., 2023). The last line below is a sample example for the additional learning:
+```{r warning=F, message=F}
+data(house)
+dat0    <- st_as_sf(house)
+dat0    <- dat0[dat0$yrbuilt>1950,]
+dat     <- data.frame(st_coordinates(dat0),dat0[,c("price","age","rooms","beds","syear")])
+coords  <- dat[ ,c("X","Y")];names(coords)<-c("px","py")
+y	      <- log(dat[,"price"])
+x       <- dat[,c("age","rooms","beds","syear")]
+meig 	  <- meigen_f(coords=coords)
+res	    <- resf_vc(y=y,x=x,meig=meig )
+res2    <- addlearn_local(res)
+res2
+```
+The addlearn_local function can be paralleled by specifying parallel= TRUE. The smaller error of res2 over res confirms its better accuracy:
+```{r warning=F, message=F}
+res$e # Before the adjustment
+```
+The plot_s function is available to quickly visualize the estimated SVCs:
+```{r warning=F, message=F}
+plot_s(res2,2)### coefficients on rooms
+```
+The addlearn_local function is also useful to improve predictive accuracy for large samples. See Section 2.3 for further detail.
+
+## For very large samples (e.g., n > 100,000)
 A computational limitation is the memory consumption of the meigen and meigen_f functions to store Moran eigenvectors. Because of the limitation, the resf and resf_vc functions are not available for very large samples (e.g., millions of samples). To overcome this limitation, the besf and besf_vc functions perform the same calculation as resf and resf_vc but without saving the eigenvectors in the memory. Besides, for fast computation, these functions perform a parallel model estimation (see Murakami and Griffith, 2019c). 
 
 Here is an example implementing a spatial regression model using the besf function and an SVC model using the besf_vc function:
 
-```{r  warning=F, message=F}
+```{r warning=F, message=F}
 data(house)
-dat   <- data.frame(coordinates(house),
-                   house@data[,c("price","age","rooms","beds","syear")])
-coords<- dat[ ,c("long","lat")]
+dat0  <- st_as_sf(house)
+dat0  <- dat0[dat0$yrbuilt>1950,]
+dat   <- data.frame(st_coordinates(dat0),dat0[,c("price","age","rooms","beds","syear")])
+coords<- dat[ ,c("X","Y")]
 y	    <- log(dat[,"price"])
 x     <- dat[,c("age","rooms","beds","syear")]
 res1	<- besf(y=y, x=x, coords=coords)
@@ -572,7 +606,12 @@ res2
 ```
 Roughly speaking, these functions are faster than the resf and resf_vc functions if the sample size is more than 100,000.
 
-I have evaluated the computational time for an SVC modeling using the besf_vc function using a Mac Pro (3.5 GHz, 12-Core Intel Xeon E5 processor with 64 GB memory). The besf_vc function took only 8.0 minutes to estimate the 7 SVCs from 1 million samples. I also confirmed that besf_vc took 70.3 minutes to estimate the same model from 10 million samples. besf and besf_vc are suitable for very large data analysis.
+As with the resf_vc function, the besf_vc function can suffer from the degeneracy/over-smoothing problem. The addlearn_local function is useful to address this problem and improves SVC modeling accuracy:
+```{r  warning=F, message=F}
+res2b <- addlearn_local(res2)
+res2b
+```
+The function is paralleled by default when besf_vc is assumed.
 
 # Reference
 - Chan, A. B., and Vasconcelos, N. (2011) Counting people with low-level features and Bayesian regression. IEEE Transactions on Image Processing, 21(4), 2160-2177.
@@ -585,11 +624,12 @@ I have evaluated the computational time for an SVC modeling using the besf_vc fu
 -	Murakami, D. and Griffith, D.A. (2019a) Eigenvector spatial filtering for large data sets: fixed and random effects approaches. Geographical Analysis, 51 (1), 23-49.
 -	Murakami, D. and Griffith, D.A. (2019b) Spatially varying coefficient modeling for large datasets: Eliminating N from spatial regressions. Spatial Statistics, 30, 39-64.
 -	Murakami, D. and Griffith, D.A. (2019c) A memory-free spatial additive mixed modeling for big spatial data. Japan Journal of Statistics and Data Science, doi: 10.1007/s42081-019-00063-x.
--	Murakami, D., Griffith, D.A. (2020) Balancing spatial and non-spatially variations in varying coefficient modeling: a remedy for spurious correlation. Arxiv, 2005:09981.
+-	Murakami, D., Griffith, D.A. (2021) Balancing spatial and non-spatially variations in varying coefficient modeling: a remedy for spurious correlation. Geographical Analysis, DOI:10.1111/gean.12310.
 - Murakami, D. (2021) Transformation-based generalized spatial regression using the spmoran package: Case study examples, ArXiv.
 -	Murakami, D., Kajita, M., Kajita, S., Matsui, T. (2021) Compositionally warped additive modeling for a wide variety of non-Gaussian spatial data. Arxiv.
 -	Murakami, D. and Seya, H. (2019) Spatially filtered unconditional quantile regression. Environmetrics, 30 (5), e2556.
 -	Murakami, D., Seya, H., and Griffith, D.A. (2018) Low rank spatial econometric models. Arxiv, 1810.02956.
+- Murakami, D., Sugasawa, S., T., Seya, H., and Griffith, D.A. (2023) Sub-model aggregation-based scalable eigenvector spatial filtering: application to spatially varying coefficient modeling. Arxiv.
 -	Murakami, D., Yoshida, T., Seya, H., Griffith, D.A., and Yamagata, Y. (2017) A Moran coefficient-based mixed effects approach to investigate spatially varying relationships. Spatial Statistics, 19, 68-89.
 - Rios, G., Tobar, F. (2019). Compositionally-warped Gaussian processes. Neural Networks, 118, 235-246.
 -	Wheeler, D., and Tiefelsdorf, M. (2005) Multicollinearity and correlation among local regression coefficients in geographically weighted regression. Journal of Geographical Systems, 7(2), 161-187.
